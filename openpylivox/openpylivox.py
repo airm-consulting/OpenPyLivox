@@ -39,7 +39,7 @@ import numpy as np
 from tqdm import tqdm
 import laspy
 from deprecated import deprecated
-
+import open3d as o3d
 
 class _heartbeatThread(object):
 
@@ -3935,3 +3935,201 @@ def convertBin2LAS(filePathAndName, deleteBin=False):
 
     if os.path.isfile(filename + "_R" + exten):
         _convertBin2LAS(filename + "_R" + exten, deleteBin)
+
+def _convertBin2PCD(filePathAndName, deleteBin):
+
+    binFile = None
+    csvFile = None
+    imuFile = None
+    imu_csvFile = None
+
+    try:
+        dataClass = 0
+        if os.path.exists(filePathAndName) and os.path.isfile(filePathAndName):
+            bin_size = Path(filePathAndName).stat().st_size - 15
+            binFile = open(filePathAndName, "rb")
+
+            checkMessage = (binFile.read(11)).decode('UTF-8')
+            if checkMessage == "OPENPYLIVOX":
+                firmwareType = struct.unpack('<h', binFile.read(2))[0]
+                dataType = struct.unpack('<h', binFile.read(2))[0]
+                divisor = 1
+
+                if firmwareType >= 1 and firmwareType <= 3:
+                    #LAS file creation only works with Cartesian data types (decided not to convert spherical obs.)
+                    if dataType == 0 or dataType == 2 or dataType == 4:
+                        print("CONVERTING OPL BINARY DATA, PLEASE WAIT...")
+
+                        coord1s = []
+                        coord2s = []
+                        coord3s = []
+                        intensity = []
+                        times = []
+                        returnNums = []
+
+                        if firmwareType == 1 and dataType == 0:
+                            dataClass = 1
+                            divisor = 21
+                        elif firmwareType > 1 and dataType == 0:
+                            dataClass = 3
+                            divisor = 22
+                        elif firmwareType == 1 and dataType == 2:
+                            dataClass = 5
+                            divisor = 22
+                        elif firmwareType == 1 and dataType == 4:
+                            dataClass = 7
+                            divisor = 36
+
+                        num_recs = int(bin_size / divisor)
+                        pbari = tqdm(total=num_recs, unit=" pts", desc="   ")
+
+                        while True:
+                            try:
+                                #Mid-40/100 Cartesian single return
+                                if dataClass == 1:
+                                    coord1s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord2s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord3s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    intensity.append(int.from_bytes(binFile.read(1), byteorder='little'))
+                                    times.append(float(struct.unpack('<d', binFile.read(8))[0]))
+                                    returnNums.append(1)
+
+                                # Mid-40/100 Cartesian multiple return
+                                elif dataClass == 3:
+                                    coord1s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord2s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord3s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    intensity.append(int.from_bytes(binFile.read(1), byteorder='little'))
+                                    times.append(float(struct.unpack('<d', binFile.read(8))[0]))
+                                    returnNums.append(int((binFile.read(1)).decode('UTF-8')))
+
+                                # Horizon/Tele-15 Cartesian single return (SDK Data Type 2)
+                                elif dataClass == 5:
+                                    coord1s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord2s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord3s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    intensity.append(struct.unpack('<B', binFile.read(1))[0])
+                                    tag_bits = str(bin(int.from_bytes(binFile.read(1), byteorder='little')))[2:].zfill(8)
+                                    times.append(float(struct.unpack('<d', binFile.read(8))[0]))
+                                    returnNums.append(1)
+
+                                # Horizon/Tele-15 Cartesian dual return (SDK Data Type 4)
+                                elif dataClass == 7:
+                                    coord1s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord2s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord3s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    intensity.append(struct.unpack('<B', binFile.read(1))[0])
+                                    tag_bits = str(bin(int.from_bytes(binFile.read(1), byteorder='little')))[2:].zfill(8)
+                                    returnNums.append(1)
+
+                                    coord1s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord2s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    coord3s.append(float(struct.unpack('<i', binFile.read(4))[0]) / 1000.0)
+                                    intensity.append(struct.unpack('<B', binFile.read(1))[0])
+                                    tag_bits = str(bin(int.from_bytes(binFile.read(1), byteorder='little')))[2:].zfill(8)
+                                    returnNums.append(2)
+
+                                    timestamp_sec = float(struct.unpack('<d', binFile.read(8))[0])
+                                    times.append(timestamp_sec)
+                                    times.append(timestamp_sec)
+
+                                pbari.update(1)
+
+                            except:
+                                break
+
+                        #save lists of point data attributes to PCD file
+                        coord1s = np.asarray(coord1s, dtype=np.float32)
+                        coord2s = np.asarray(coord2s, dtype=np.float32)
+                        coord3s = np.asarray(coord3s, dtype=np.float32)
+                        coord123s = np.column_stack((coord1s, coord2s, coord3s))
+                        print("xyz", coord123s.shape)
+
+                        intensities = np.vstack(intensity).astype(np.float32)
+                        print("inten", intensities.shape)
+
+                        output_pointcloud = o3d.t.geometry.PointCloud()
+                        output_pointcloud.point['positions'] = o3d.core.Tensor.from_numpy(coord123s)
+                        output_pointcloud.point['intensity'] = o3d.core.Tensor.from_numpy(intensities)
+
+                        o3d.t.io.write_point_cloud(filePathAndName+".pcd", output_pointcloud, write_ascii=True)
+
+                        pbari.close()
+                        binFile.close()
+                        print("   - Point data was converted successfully to PCD, see file: " + filePathAndName + ".pcd")
+                        if deleteBin:
+                            os.remove(filePathAndName)
+                            print("     * OPL point data binary file has been deleted")
+                        print()
+                        time.sleep(0.5)
+                    else:
+                        print("*** ERROR: Only Cartesian point data can be converted to an PCD file ***")
+                        binFile.close()
+                else:
+                    print("*** ERROR: The OPL point data binary file reported a wrong firmware type ***")
+                    binFile.close()
+
+                # check for and convert IMU BIN data (if it exists)
+                path_file = Path(filePathAndName)
+                filename = path_file.stem
+                exten = path_file.suffix
+                IMU_file = filename + "_IMU" + exten
+
+                if os.path.exists(IMU_file) and os.path.isfile(IMU_file):
+                    bin_size2 = Path(IMU_file).stat().st_size - 15
+                    num_recs = int(bin_size2/32)
+                    binFile2 = open(IMU_file, "rb")
+
+                    checkMessage = (binFile2.read(15)).decode('UTF-8')
+                    if checkMessage == "OPENPYLIVOX_IMU":
+                        with open(IMU_file + ".csv", "w", 1) as csvFile2:
+                            csvFile2.write("//gyro_x,gyro_y,gyro_z,acc_x,acc_y,acc_z,time\n")
+                            pbari2 = tqdm(total=num_recs, unit=" records", desc="   ")
+                            while True:
+                                try:
+                                    gyro_x = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    gyro_y = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    gyro_z = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    acc_x = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    acc_y = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    acc_z = "{0:.6f}".format(struct.unpack('<f', binFile2.read(4))[0])
+                                    timestamp_sec = "{0:.6f}".format(struct.unpack('<d', binFile2.read(8))[0])
+
+                                    csvFile2.write(gyro_x + "," + gyro_y + "," + gyro_z + "," + acc_x + "," + acc_y +
+                                        "," + acc_z + "," + timestamp_sec + "\n")
+
+                                    pbari2.update(1)
+
+                                except:
+                                    break
+
+                            pbari2.close()
+                            binFile2.close()
+                            print("   - IMU data was converted successfully to CSV, see file: " + IMU_file + ".csv")
+                            if deleteBin:
+                                os.remove(IMU_file)
+                                print("     * OPL IMU data binary file has been deleted")
+                    else:
+                        print("*** ERROR: The file was not recognized as an OpenPyLivox binary IMU data file ***")
+                        binFile2.close()
+            else:
+                print("*** ERROR: The file was not recognized as an OpenPyLivox binary point data file ***")
+                binFile.close()
+    except:
+        binFile.close()
+        print("*** ERROR: An unknown error occurred while converting OPL binary data ***")
+
+def convertBin2PCD(filePathAndName, deleteBin=False):
+    print()
+    path_file = Path(filePathAndName)
+    filename = path_file.stem
+    exten = path_file.suffix
+
+    if os.path.isfile(filePathAndName):
+        _convertBin2PCD(filePathAndName, deleteBin)
+
+    if os.path.isfile(filename + "_M" + exten):
+        _convertBin2PCD(filename + "_M" + exten, deleteBin)
+
+    if os.path.isfile(filename + "_R" + exten):
+        _convertBin2PCD(filename + "_R" + exten, deleteBin)

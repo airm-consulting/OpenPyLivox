@@ -43,14 +43,14 @@ def singleSensorDemo():
     sensor.resetShowMessages()
 
     # easiest to try to automatically set the openpylivox sensor connection parameters and connect
-    connected = sensor.auto_connect()
+    # connected = sensor.auto_connect()
 
     # or if your computer has multiple IP address you can force the computer IP to a manual address
     # connected = sensor.auto_connect("192.168.1.23")
 
     # or manually define all IP addresses and ports (still need to properly configure your IP, Subnet, etc. on your computer)
     #                            computer IP       sensorIP    data port  command port  IMU port
-    # connected = sensor.connect("192.168.1.23", "192.168.1.118",  60001,     50001,      40001)
+    connected = sensor.connect("192.168.2.2", "192.168.2.196",  65001,     50001,      40001)
 
     # make sure a sensor was connected
     if connected:
@@ -73,11 +73,11 @@ def singleSensorDemo():
         # sensor.setCartesianCS()
 
         # read current extrinsic values from the sensor
-        # sensor.readExtrinsic()
+        sensor.readExtrinsic()
 
         # set all the sensor's extrinsic parameters equal to zero
         # (*** IMPORTANT: does not affect raw point cloud data stream, seems to only be used in Livox-Viewer? ***)
-        # sensor.setExtrinsicToZero()
+        sensor.setExtrinsicToZero()
 
         x = 12.345  # units of meters
         y = -23.456  # units of meters
@@ -90,8 +90,9 @@ def singleSensorDemo():
         # (*** IMPORTANT: does not affect raw point cloud data stream, seems to only be used in Livox-Viewer? ***)
         # sensor.setExtrinsicTo(x, y, z, roll, pitch, yaw)
 
+        sensor.readExtrinsic()
         # the sensor's extrinsic parameters can be returned as a list of floats
-        # extParams = sensor.extrinsicParameters()
+        extParams = sensor.extrinsicParameters()
 
         sensor.resetShowMessages()
 
@@ -134,7 +135,7 @@ def singleSensorDemo():
 
         filePathAndName = "test.bin"  # file extension is NOT used to automatically determine if ASCII or Binary data is stored
         secsToWait = 0.1  # seconds, time delayed data capture start
-        duration = 3.0  # seconds, zero (0) specifies an indefinite duration
+        duration = 5.0  # seconds, zero (0) specifies an indefinite duration
 
         # (*** IMPORTANT: this command starts a new thread, so the current program (thread) needs to exist for the 'duration' ***)
         # capture the data stream and save it to a file (if applicable, IMU data stream will also be saved to a file)
@@ -174,13 +175,17 @@ def singleSensorDemo():
         # convert BINARY point data to LAS file and IMU data (if applicable) to CSV file
         # only works in conjunction with .dataStart_RT_B()
         # designed so the efficiently collected binary point data can be converted to LAS at any time after data collection
-        opl.convertBin2LAS(filePathAndName, deleteBin=True)
+        # opl.convertBin2LAS(filePathAndName, deleteBin=True)
 
         # convert BINARY point data and IMU data (if applicable) to CSV files
         # only works in conjunction with .dataStart_RT_B()
         # designed so the efficiently collected binary data can be converted to CSV at any time after data collection
         # opl.convertBin2CSV(filePathAndName, deleteBin=True)
 
+        # convert BINARY point data and IMU data (if applicable) to PCD files
+        # only works in conjunction with .dataStart_RT_B()
+        # designed so the efficiently collected binary data can be converted to PCD at any time after data collection
+        opl.convertBin2PCD(filePathAndName, deleteBin=True)
     else:
         print("\n***** Could not connect to a Livox sensor *****\n")
 
