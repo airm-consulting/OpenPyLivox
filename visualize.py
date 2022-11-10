@@ -2,8 +2,10 @@ import open3d as o3d
 import numpy as np
 import copy
 import os
+import numpy.linalg as LA
+import itertools
 
-filename = os.path.join("calibration", "5.pcd")
+filename = os.path.join("calibration", "6.pcd")
 # filename = "test.bin.pcd"
 pcd = o3d.io.read_point_cloud(filename)
 print(pcd)
@@ -49,8 +51,8 @@ o3d.visualization.draw_geometries([cropped_pcd, aabb],
                                   up=[0, 0, 1])
 
 print("Downsample the point cloud with a voxel")
-downpcd = cropped_pcd
-# downpcd = cropped_pcd.voxel_down_sample(voxel_size=0.05)
+#downpcd = cropped_pcd
+downpcd = cropped_pcd.voxel_down_sample(voxel_size=0.0001)
 o3d.visualization.draw_geometries([downpcd, aabb],
                                   zoom=0.001,
                                   front=[-1, 0, 0],
@@ -77,58 +79,123 @@ o3d.visualization.draw_geometries([denoised_cloud, noise_cloud],
                                   up=[0, 0, 1])
 
 # fit plane 
-fitted_pcd = denoised_cloud
-plane_model, plane_inliers = denoised_cloud.segment_plane(distance_threshold=0.005,
-                                         ransac_n=10,
-                                         num_iterations=1000)
-[a, b, c, d] = plane_model
-print(f"Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
-# viz 
-plane_cloud = denoised_cloud.select_by_index(plane_inliers)
-plane_cloud.paint_uniform_color([1.0, 0, 0])
-noneplane_cloud = denoised_cloud.select_by_index(plane_inliers, invert=True)
-noneplane_cloud.paint_uniform_color([0, 0, 1.0])
-o3d.visualization.draw_geometries([plane_cloud, noneplane_cloud],
-                                  zoom=0.001,
-                                  front=[-1, 0, 0],
-                                  lookat=[0, 1, 0],
-                                  up=[0, 0, 1])
+def fit_plane(pc):
+    thresh_list = [0.1, 0.02]
+    for iter_time, thresh in enumerate(thresh_list):
+        plane_model, plane_inliers = pc.segment_plane(distance_threshold=0.04,
+                                                ransac_n=50,
+                                                num_iterations=1000)
+        [a, b, c, d] = plane_model
+        print(f"Iter: {iter_time:d} Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
+        plane_cloud = pc.select_by_index(plane_inliers)
+        plane_cloud.paint_uniform_color([1.0, 0, 0])
+        noneplane_cloud = pc.select_by_index(plane_inliers, invert=True)
+        noneplane_cloud.paint_uniform_color([0, 0, 1.0])
+        o3d.visualization.draw_geometries([plane_cloud, noneplane_cloud],
+                                        zoom=0.001,
+                                        front=[-1, 0, 0],
+                                        lookat=[0, 1, 0],
+                                        up=[0, 0, 1])
+        _pc = np.asarray(plane_cloud.points)
+        x, y, z = _pc[:, 0], _pc[:, 1], _pc[:, 2]
+        dist = np.abs(a * x + b * y + c * z + d) / LA.norm([a, b, c], ord=2)
+        _pc = _pc[np.where(dist < thresh)]
+        output_pcd = o3d.geometry.PointCloud()
+        output_pcd.points = o3d.utility.Vector3dVector(_pc)
+    return (output_pcd, a, b, c, d)
 
-aabb = plane_cloud.get_axis_aligned_bounding_box()
+#project points to plane
+def get_flattened_pcds2(pc,A,B,C,D,x0,y0,z0):
+    source = copy.deepcopy(pc)
+    x1 = np.asarray(source.points)[:,0]
+    y1 = np.asarray(source.points)[:,1]
+    z1 = np.asarray(source.points)[:,2]
+    x0 = x0 * np.ones(x1.size)
+    y0 = y0 * np.ones(y1.size)
+    z0 = z0 * np.ones(z1.size)
+    r = np.power(np.square(x1-x0)+np.square(y1-y0)+np.square(z1-z0),0.5)
+    a = (x1-x0)/r
+    b = (y1-y0)/r
+    c = (z1-z0)/r
+    t = -1 * (A * np.asarray(source.points)[:,0] + B * np.asarray(source.points)[:,1] + C * np.asarray(source.points)[:,2] + D)
+    t = t / (a*A+b*B+c*C)
+    np.asarray(source.points)[:,0] = x1 + a * t
+    np.asarray(source.points)[:,1] = y1 + b * t
+    np.asarray(source.points)[:,2] = z1 + c * t
+    return source
+
+fitted_pcd, A, B, C, D = fit_plane(denoised_cloud)
+fitted_pcd = get_flattened_pcds2(fitted_pcd,A,B,C,D,0,0,0)
+aabb = fitted_pcd.get_axis_aligned_bounding_box()
 aabb.color = (1, 0, 0)
-obb = plane_cloud.get_oriented_bounding_box()
+obb = fitted_pcd.get_oriented_bounding_box(robust=True)
 obb.color = (0, 1, 0)
-o3d.visualization.draw_geometries([plane_cloud, aabb, obb],
+o3d.visualization.draw_geometries([fitted_pcd, aabb, obb],
                                   zoom=0.7,
                                   front=[-1, 0, 0],
                                   lookat=[0, 1, 0],
                                   up=[0, 0, 1])
-print(np.asarray(aabb.get_box_points()))
 
+#calculate distance between two points
+def distance_between_two_points(p1,p2):
+    return LA.norm(p1-p2)
+#calculate shortest distance of points p from line formed by lp1 and lp2
+# from https://stackoverflow.com/questions/50727961/shortest-distance-between-a-point-and-a-line-in-3-d-space
+def distance_between_line_and_point(lp1, lp2, p):
+    x = lp1-lp2
+    return LA.norm(np.outer(np.dot(p-lp2, x)/np.dot(x, x), x)+lp2-p, axis=1)
+def rectangle_perimeter_from_corners(corners):
+    if not len(corners) == 4:
+        print("error, must be 4 corners")
+        return
+    else:
+        index_list = list(itertools.combinations(np.arange(0,4,dtype=int), 2))
+        index_list = [list(index_list[i]) for i in range(len(index_list))] 
+        boundaries_index_list = sorted(index_list, key= lambda x: distance_between_two_points(np.asarray(corners[x[0]]), np.asarray(corners[x[1]])))
+        boundaries_index_list = boundaries_index_list[:4]
+        boundaries_lines = []
+        for x in range(len(boundaries_index_list)):
+            boundaries_lines.append([corners[boundaries_index_list[x][0]], corners[boundaries_index_list[x][1]]])
+        boundaries_lines = np.array(boundaries_lines)
+        # print(boundaries_lines)
+        return boundaries_lines, boundaries_index_list
+
+def prepare_rectangle_perimeter_lineset(corners, boundaries_index_list, rgb):
+    colors = [rgb for i in range(len(boundaries_index_list))]
+    line_set = o3d.geometry.LineSet(points = o3d.utility.Vector3dVector(corners), 
+                                    lines = o3d.utility.Vector2iVector(boundaries_index_list),)
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+#find points that is the cloest to each boundary line of the box
+corners_points = np.unique(np.asarray(obb.get_box_points()), axis=0)
+corners = [list(corners_points[0]), list(corners_points[2]), list(corners_points[4]), list(corners_points[6]),]
+print(corners)
+boundaries_lines, boundaries_index_list = rectangle_perimeter_from_corners(corners)
+#draw boundaries
+print(boundaries_index_list)
+line_set = prepare_rectangle_perimeter_lineset(corners=corners, boundaries_index_list=boundaries_index_list, rgb=[1,0,0])
+o3d.visualization.draw_geometries([fitted_pcd, line_set])
+corner_point_idx = []
+for i in range(len(boundaries_lines)):
+    d = distance_between_line_and_point(boundaries_lines[i][0], boundaries_lines[i][1], fitted_pcd.points)
+    corner_index_list = np.where(d <= (0.005))[0].tolist()
+    for idx in corner_index_list:
+        corner_point_idx.append(idx)
+print(corner_point_idx)
+corner_points = fitted_pcd.select_by_index(corner_point_idx)
+corner_points.paint_uniform_color([0,0,0])
+# _, b_idx = rectangle_perimeter_from_corners(corner_points.points)
+# corner_lines = prepare_rectangle_perimeter_lineset(corner_points.points, b_idx, [1,0,0])
 inliers.paint_uniform_color([0.8,0.8,0.8])
-o3d.visualization.draw_geometries([inliers, aabb, obb],
+o3d.visualization.draw_geometries([inliers, corner_points, obb],
                                   zoom=0.0001,
                                   front=[-1, 0, 0],
                                   lookat=[0, 1, 0],
                                   up=[0, 0, 1])
+print(np.asarray(corner_points.points))
 
-# def get_flattened_pcds2(source,A,B,C,D,x0,y0,z0):
-#     x1 = np.asarray(source.points)[:,0]
-#     y1 = np.asarray(source.points)[:,1]
-#     z1 = np.asarray(source.points)[:,2]
-#     x0 = x0 * np.ones(x1.size)
-#     y0 = y0 * np.ones(y1.size)
-#     z0 = z0 * np.ones(z1.size)
-#     r = np.power(np.square(x1-x0)+np.square(y1-y0)+np.square(z1-z0),0.5)
-#     a = (x1-x0)/r
-#     b = (y1-y0)/r
-#     c = (z1-z0)/r
-#     t = -1 * (A * np.asarray(source.points)[:,0] + B * np.asarray(source.points)[:,1] + C * np.asarray(source.points)[:,2] + D)
-#     t = t / (a*A+b*B+c*C)
-#     np.asarray(source.points)[:,0] = x1 + a * t
-#     np.asarray(source.points)[:,1] = y1 + b * t
-#     np.asarray(source.points)[:,2] = z1 + c * t
-#     return source
+
 # plane_cloud_deep_copy = copy.deepcopy(plane_cloud)
 # pcd_deep_copy = copy.deepcopy(pcd)
 # plane_cloud_project = get_flattened_pcds2(pcd_deep_copy, a, b, c, d, 0, 0, 0)
