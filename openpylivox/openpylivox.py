@@ -4043,10 +4043,10 @@ def _convertBin2PCD(filePathAndName, deleteBin):
                         coord2s = np.asarray(coord2s, dtype=np.float32)
                         coord3s = np.asarray(coord3s, dtype=np.float32)
                         coord123s = np.column_stack((coord1s, coord2s, coord3s))
-                        print("xyz", coord123s.shape)
+                        # print("xyz", coord123s.shape)
 
                         intensities = np.vstack(intensity).astype(np.float32)
-                        print("inten", intensities.shape)
+                        # print("inten", intensities.shape)
 
                         output_pointcloud = o3d.t.geometry.PointCloud()
                         output_pointcloud.point['positions'] = o3d.core.Tensor.from_numpy(coord123s)
