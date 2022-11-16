@@ -2216,7 +2216,7 @@ class openpylivox(object):
                             break
                 else:
                     self._showMessages = False
-                    numFound = self.connect(self._computerIP, lidarSensorIPs[0], 0, 0, 0)
+                    numFound = self.connect(self._computerIP, lidarSensorIPs[0], 56000, 55500, 57000)
                     self._deviceType = unique_sensors[0]
                     self.resetShowMessages()
 
@@ -4039,20 +4039,21 @@ def _convertBin2PCD(filePathAndName, deleteBin):
                                 break
 
                         #save lists of point data attributes to PCD file
-                        coord1s = np.asarray(coord1s, dtype=np.float32)
-                        coord2s = np.asarray(coord2s, dtype=np.float32)
-                        coord3s = np.asarray(coord3s, dtype=np.float32)
-                        coord123s = np.column_stack((coord1s, coord2s, coord3s))
-                        # print("xyz", coord123s.shape)
+                        if num_recs > 0:
+                            coord1s = np.asarray(coord1s, dtype=np.float32)
+                            coord2s = np.asarray(coord2s, dtype=np.float32)
+                            coord3s = np.asarray(coord3s, dtype=np.float32)
+                            coord123s = np.column_stack((coord1s, coord2s, coord3s))
+                            # print("xyz", coord123s.shape)
 
-                        intensities = np.vstack(intensity).astype(np.float32)
-                        # print("inten", intensities.shape)
+                            intensities = np.vstack(intensity).astype(np.float32)
+                            # print("inten", intensities.shape)
 
-                        output_pointcloud = o3d.t.geometry.PointCloud()
-                        output_pointcloud.point['positions'] = o3d.core.Tensor.from_numpy(coord123s)
-                        output_pointcloud.point['intensity'] = o3d.core.Tensor.from_numpy(intensities)
+                            output_pointcloud = o3d.t.geometry.PointCloud()
+                            output_pointcloud.point['positions'] = o3d.core.Tensor.from_numpy(coord123s)
+                            output_pointcloud.point['intensity'] = o3d.core.Tensor.from_numpy(intensities)
 
-                        o3d.t.io.write_point_cloud(filePathAndName+".pcd", output_pointcloud, write_ascii=True)
+                            o3d.t.io.write_point_cloud(filePathAndName+".pcd", output_pointcloud, write_ascii=True)
 
                         pbari.close()
                         binFile.close()
