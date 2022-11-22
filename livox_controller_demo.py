@@ -46,11 +46,11 @@ def singleSensorDemo():
     # connected = sensor.auto_connect()
 
     # or if your computer has multiple IP address you can force the computer IP to a manual address
-    # connected = sensor.auto_connect("192.168.1.23")
+    connected = sensor.auto_connect(manualComputerIP="192.168.2.2")
 
     # or manually define all IP addresses and ports (still need to properly configure your IP, Subnet, etc. on your computer)
     #                            computer IP       sensorIP    data port  command port  IMU port
-    connected = sensor.connect("192.168.2.2", "192.168.2.196",  65001,     50001,      40001)
+    # connected = sensor.connect("192.168.2.2", "192.168.2.196",  65001,     50001,      40001)
 
     # make sure a sensor was connected
     if connected:
@@ -205,7 +205,7 @@ def multipleSensorsDemo():
         sensor = opl.openpylivox(True)
 
         # automatically find and connect to a sensor
-        connected = sensor.auto_connect("192.168.1.23")
+        connected = sensor.auto_connect("192.168.2.2")
 
         if connected:
             # initial commands for each sensor (no harm if the parameter is not supported by sensor)
