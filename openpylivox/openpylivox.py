@@ -2202,21 +2202,21 @@ class openpylivox(object):
 
                     for i in range(3):
                         if int(sensor_IDs[i]) == 1:
-                            self.connect(self._computerIP, sensor_IPs[i], 0, 0, 0, "Mid-100 (L)")
+                            self.connect(self._computerIP, sensor_IPs[i], 56000, 55500, 57000, "Mid-100 (L)")
                             for j in range(3):
                                 if int(sensor_IDs[j]) == 2:
-                                    sensorM.connect(self._computerIP, sensor_IPs[j], 0, 0, 0, "Mid-100 (M)")
+                                    sensorM.connect(self._computerIP, sensor_IPs[j], 56001, 55501, 57001, "Mid-100 (M)")
                                     self._mid100_sensors.append(sensorM)
                                     for k in range(3):
                                         if int(sensor_IDs[k]) == 3:
-                                            numFound = sensorR.connect(self._computerIP, sensor_IPs[k], 0, 0, 0, "Mid-100 (R)")
+                                            numFound = sensorR.connect(self._computerIP, sensor_IPs[k], 56002, 55502, 57002, "Mid-100 (R)")
                                             self._mid100_sensors.append(sensorR)
                                             break
                                     break
                             break
                 else:
                     self._showMessages = False
-                    numFound = self.connect(self._computerIP, lidarSensorIPs[0], 0, 0, 0)
+                    numFound = self.connect(self._computerIP, lidarSensorIPs[0], 56000, 55500, 57000)
                     self._deviceType = unique_sensors[0]
                     self.resetShowMessages()
 
